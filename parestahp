@@ -140,8 +140,8 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
     bcov = np.zeros(upstream + downstream)
     fwdtree, revtree = roi_trees
     for i, read in enumerate(bam):
-        if (i % 100000) == 0:
-            print("\t...", i, file=stderr)
+        if (i % 1000000) == 0:
+            print("\t... {:0.1f}M reads".format(i / 1e6), file=stderr)
         if read.is_unmapped  or read.is_duplicate or read.is_paired or \
                 read.is_secondary or read.is_supplementary:
             # skip weird or bad reads
@@ -164,6 +164,8 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
 def print_histogram(coverage, upstream, downstream):
     for e, i in enumerate(reversed(range(1, upstream+1))):
         print(-i, coverage[e], sep='\t')
+    for e, i in enumerate(reversed(range(1, downstream+1)), start=upstream):
+        print(i, coverage[e], sep='\t')
 
 
 def parse_txlist(txfile):
