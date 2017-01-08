@@ -141,8 +141,8 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
     fwdtree, revtree = roi_trees
     for i, read in enumerate(bam):
         if (i % 1000000) == 0:
-            print("\t... {:0.1f}M reads".format(i / 1e6), file=stderr)
-        if read.is_unmapped  or read.is_duplicate or read.is_paired or \
+            print("\t... {:0.0f}M reads".format(i / 1e6), file=stderr)
+        if read.is_unmapped or read.is_duplicate or read.is_paired or \
                 read.is_secondary or read.is_supplementary:
             # skip weird or bad reads
             continue
@@ -157,6 +157,7 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
         w = features[0]
         windowpos = pos-(w.begin) + w.data['win_start']
         bcov[windowpos] += 1
+    print("\t... Finished, {:,} reads".format(i), file=stderr)
     bam.close()
     return bcov
 
@@ -164,7 +165,7 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
 def print_histogram(coverage, upstream, downstream):
     for e, i in enumerate(reversed(range(1, upstream+1))):
         print(-i, coverage[e], sep='\t')
-    for e, i in enumerate(reversed(range(1, downstream+1)), start=upstream):
+    for e, i in enumerate(range(downstream), start=upstream):
         print(i, coverage[e], sep='\t')
 
 
