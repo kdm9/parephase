@@ -1,0 +1,7 @@
+*.py[co]
+.*.sw?
+
+build/
+dist/
+MANIFEST
+*.egg-info
