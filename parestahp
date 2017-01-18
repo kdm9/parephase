@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from collections import defaultdict
+from collections import defaultdict, Counter
 from sys import exit, stderr, stdout, stdin
 
 import gffutils
@@ -33,20 +33,31 @@ OPTIONS:
 
 def load_gffdb(gfffile):
     '''Loads GFF from `gfffile` into in-memory SQLite db and returns cursor.'''
-    return gffutils.create_db(gfffile, ":memory:")
+    print("Loading annotation into database", file=stderr)
+    db = gffutils.create_db(gfffile, ":memory:")
+    print("\t... Finished!", file=stderr)
+    return db
 
 
 def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
+    '''With apologies to K&R, /* You are not supposed to understand this */'''
     gffdb = load_gffdb(gfffile)
+
+    # ROIs are 1 tree for fwd & rev per chromosome
     roi_fs = defaultdict(IntervalTree)
     roi_rs = defaultdict(IntervalTree)
+
+    # Default to all mRNA IDs
     if transcript_ids is None:
         mrnas = gffdb.all_features(featuretype='mRNA')
         transcript_ids = [m.id for m in mrnas]
+
     for i, transcript_id in enumerate(transcript_ids):
         if (i % 5000) == 0:
             print("\t...", i, file=stderr)
+
         transcript = gffdb[transcript_id]
+
         if transcript.featuretype != 'mRNA':
             continue
 
@@ -65,7 +76,6 @@ def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
                 roi_start = cds.end - to_capture
                 roi_end = cds.end
                 roi_f[roi_start:roi_end] = {'win_start': -(total_captured+to_capture),
-                                            'win_end': -(total_captured),
                                             'tid': transcript.id,
                                             'type': 'cds'}
                 total_captured += to_capture
@@ -77,8 +87,7 @@ def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
                 # Note the -1s are for BED indexing
                 roi_start = cds.start - 1
                 roi_end = cds.start + to_capture - 1
-                roi_r[roi_start:roi_end] = {'win_start': -(total_captured),
-                                            'win_end': -(total_captured+to_capture),
+                roi_r[roi_start:roi_end] = {'win_start': -1,
                                             'tid': transcript.id,
                                             'type': 'cds'}
                 total_captured += to_capture
@@ -86,75 +95,59 @@ def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
         # Deal with downstream from stop codon, i.e. 3' UTR
         utr = list(gffdb.children(transcript_id, featuretype='three_prime_UTR'))
         if len(utr) < 1:
-            # Some transcripts seem to have no UTR, is this right?
+            # Some transcripts have no UTR
             continue
         utr = utr[0]
         to_capture = min(downstream, len(utr))
         if transcript.strand == '+':
-            roi = roi_f
             # left of the end by length to capture. Note the start is 0-based, for BED indexing
             roi_start = utr.start - 1
             roi_end = utr.start + to_capture - 1
+            roi_f[roi_start:roi_end] = {'win_start': 0,
+                                        'tid': transcript.id,
+                                        'type': 'utr'}
         elif transcript.strand == '-':
-            roi = roi_r
             roi_start = utr.end - to_capture
             roi_end = utr.end
-        roi[roi_start:roi_end] = {'win_start': 1,
-                                  'win_end': to_capture,
-                                  'tid': transcript.id,
-                                  'type': 'utr'}
+            roi_r[roi_start:roi_end] = {'win_start': to_capture - 1,
+                                        'tid': transcript.id,
+                                        'type': 'utr'}
     return roi_fs, roi_rs
-
-
-def iter_bedgraph(filename, minval=0):
-    with open(filename) as bed:
-        for line in bed:
-            rec = line.rstrip("\r\n").split()
-            chrm = rec[0]
-            start = int(rec[1])
-            stop = int(rec[2])
-            val = abs(int(rec[3]))
-            if val >= minval:
-                yield (chrm, range(start, stop), val)
-
-
-def process_beds(plusbed, minusbed, roi_trees, upstream=100, downstream=50):
-    cov = np.zeros(upstream + downstream)
-    for roi_tree, bed in zip(roi_trees, (plusbed, minusbed)):
-        for chrom, posrange, count in iter_bedgraph(bed, minval=1):
-            roi = roi_tree[chrom]
-            for pos in posrange:
-                features = list(roi[pos])
-                if len(features) != 1:
-                    continue
-                w = features[0]
-                windowpos = pos-(w.begin) + w.data['win_start']
-                cov[windowpos] += count
-
-    return cov
 
 
 def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
     bam = pysam.AlignmentFile(bamfile, "rb")
     bcov = np.zeros(upstream + downstream)
+    bcov = Counter()
     fwdtree, revtree = roi_trees
+    i = 0
     for i, read in enumerate(bam):
         if (i % 1000000) == 0:
             print("\t... {:0.0f}M reads".format(i / 1e6), file=stderr)
+
+        # skip weird or bad reads
         if read.is_unmapped or read.is_duplicate or read.is_paired or \
                 read.is_secondary or read.is_supplementary:
-            # skip weird or bad reads
             continue
 
         ref = read.reference_name
-        roi_tree = revtree[ref] if read.is_reverse else fwdtree[ref]
-        pos = read.reference_start
+        if read.is_reverse:
+            roi_tree = revtree[ref]
+            pos = read.reference_end
+        else:
+            roi_tree = fwdtree[ref]
+            pos = read.reference_start
 
         features = list(roi_tree[pos])
         if len(features) != 1:
             continue
         w = features[0]
-        windowpos = pos-(w.begin) + w.data['win_start']
+        if not read.is_reverse:
+            windowpos = pos-(w.begin) + w.data['win_start']
+        else:
+            windowpos = w.begin - pos + w.data['win_start']
+        windowpos += upstream
+
         bcov[windowpos] += 1
     print("\t... Finished, {:,} reads".format(i), file=stderr)
     bam.close()
@@ -162,9 +155,7 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
 
 
 def print_histogram(coverage, upstream, downstream):
-    for e, i in enumerate(reversed(range(1, upstream+1))):
-        print(-i, coverage[e], sep='\t')
-    for e, i in enumerate(range(downstream), start=upstream):
+    for e, i in enumerate(range(-upstream, downstream)):
         print(i, coverage[e], sep='\t')
 
 
