@@ -89,7 +89,7 @@ def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
                 # left of the end by length to capture. Note the start is 0-based, for BED indexing
                 roi_start = cds.end - to_capture
                 roi_end = cds.end
-                roi_f[roi_start:roi_end] = {'win_start': -(total_captured+to_capture),
+                roi_f[roi_start:roi_end] = {'win_start': -(total_captured+to_capture+1),
                                             'tid': transcript.id,
                                             'type': 'cds'}
                 total_captured += to_capture
