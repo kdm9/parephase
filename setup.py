@@ -4,7 +4,6 @@ setup(
     name="parestahp",
     install_requires=[
         "gffutils",
-        "intervaltree",
         "numpy",
         "pysam",
     ],

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-from collections import defaultdict, Counter
-from sys import exit, stderr, stdout, stdin
-import os
+from collections import defaultdict
+from sys import stderr
 from os import path
 
 import gffutils
-from intervaltree import IntervalTree, Interval
 import numpy as np
 import pysam
 
@@ -40,7 +38,7 @@ def progprint(*args):
 
 
 def load_gffdb(gfffile):
-    '''Loads GFF from `gfffile` into in-memory SQLite db and returns cursor.'''
+    '''Loads GFF from `gfffile`; returns DB cursor.'''
 
     if path.exists(gfffile + ".sqlite"):
         gfffile += ".sqlite"
@@ -71,7 +69,7 @@ def calc_g2m(gffdb, transcript_id):
             for i in range(exon.end, exon.start-1, -1):
                 g2m[i] = mrna_pos
                 mrna_pos += 1
-    return g2m, {m:g for g, m in g2m.items()}
+    return g2m, {m: g for g, m in g2m.items()}
 
 
 def find_stop_pos(gffdb, transcript_id):
@@ -84,7 +82,7 @@ def find_stop_pos(gffdb, transcript_id):
         stop_pos = three_prime.end   # Last position in CDS
     else:
         three_prime = cdses[0]
-        stop_pos = three_prime.start # Last pos in CDS
+        stop_pos = three_prime.start  # Last pos in CDS, it's backwards
     return stop_pos
 
 
@@ -116,13 +114,10 @@ def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
         stop_pos = find_stop_pos(gffdb, transcript_id)
         tx_len = gffdb.children_bp(transcript_id)
         g2m, m2g = calc_g2m(gffdb, transcript_id)
-        #for (g, m) in sorted(g2m.items()):
-        #    progprint(transcript_id, transcript.strand, g, m)
         mstop = g2m[stop_pos]
 
         start = max(mstop - upstream, 0)
         end = min(start + upstream + downstream, tx_len)
-        #progprint(transcript_id, stop_pos, start, end)
         # wp = window pos, mp=mRNA pos, gp = genome pos. wp/mp 0-based, gp is 1
         for wp, mp in enumerate(range(start, end)):
             d = {
@@ -136,7 +131,6 @@ def make_roi_trees(gfffile, transcript_ids=None, upstream=100, downstream=50):
                 roi_fs[chrom][gp] = d
             else:
                 roi_rs[chrom][gp-1] = d
-            #progprint(transcript_id, stop_pos, gp, d)
     progprint("\t... Finished, {:,} reads".format(i))
     return roi_fs, roi_rs
 
@@ -150,7 +144,7 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
         if (i % 1000000) == 0:
             progprint("\t... {:0.0f}M reads".format(i / 1e6))
 
-        # skip weird or bad reads
+        # skip unmapped, weird or bad reads
         if read.is_unmapped or read.is_duplicate or read.is_paired or \
                 read.is_secondary or read.is_supplementary:
             continue
@@ -166,6 +160,7 @@ def processs_bam(bamfile, roi_trees, upstream=100, downstream=50):
         try:
             feature = roi_tree[pos]
         except KeyError:
+            # Not of any interest to us
             continue
         locus = feature["tid"]
         windowpos = feature["winpos"]
@@ -206,11 +201,6 @@ def parse_txlist(txfile):
                 txlist.add(tx)
     return txlist
 
-def printtree(roi_trees):
-    for tree in roi_trees:
-        for chrom, posd in sorted(tree.items()):
-            for pos, d in sorted(posd.items()):
-                progprint(chrom, pos, d)
 
 def main():
     args = docopt.docopt(CLI)
@@ -232,7 +222,6 @@ def main():
 
     progprint("Make ROI trees ...")
     roi_trees = make_roi_trees(gff, txlist, upstream, downstream)
-    #printtree(roi_trees)
     progprint("Make ROI trees ... done")
 
     progprint("Calculate 5'PARE histograms ...")
