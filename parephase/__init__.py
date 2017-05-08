@@ -203,7 +203,8 @@ def parse_txlist(txfile):
 
 
 def main():
-    args = docopt.docopt(CLI)
+    from ._version import get_version
+    args = docopt.docopt(CLI, version=get_version())
 
     gff = args['-g']
     if args['-l']:
@@ -231,6 +232,6 @@ def main():
 
     progprint("Finished!")
 
-
-if __name__ == "__main__":
-    main()
+from ._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
