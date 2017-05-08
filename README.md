@@ -1,4 +1,4 @@
-PAREstahp
+PAREphase
 =========
 
 Detects phasing around stop sites in 5'PARE data
