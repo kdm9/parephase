@@ -11,10 +11,10 @@ import docopt
 
 
 CLI = """
-parestahp -- Histogram coverage of 5' PARE data around stop sites
+parephase -- Histogram coverage of 5' PARE data around stop sites
 
 USAGE:
-    parestahp [options] -g GFF_FILE BAMFILE
+    parephase [options] -g GFF_FILE BAMFILE
 
 OPTIONS:
     -P          Output counts per gene
