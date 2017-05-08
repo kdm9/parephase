@@ -8,6 +8,7 @@ setup(
         "gffutils",
         "numpy",
         "pysam",
+        "docopt",
     ],
     packages=["parephase"],
     version=versioneer.get_version(),
